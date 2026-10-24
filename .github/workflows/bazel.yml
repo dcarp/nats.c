@@ -59,13 +59,13 @@ jobs:
           for qos in default user-initiated; do
             echo "::group::Integration timing with QoS $qos"
             status=0
-            bazel --macos_qos_class="$qos" test \
+            bazel test \
               --test_output=all --verbose_failures \
               --copt=-isystem/usr/local/include \
-              --nocache_test_results --flaky_test_attempts=1 \
+              --nocache_test_results --flaky_test_attempts=1 --test_env=CNATS_TEST_QOS="$qos" \
               "${tests[@]}" || status=$?
             echo "QoS $qos: Bazel exit code $status" >> "$GITHUB_STEP_SUMMARY"
-            testlogs=$(bazel --macos_qos_class="$qos" info bazel-testlogs | tr -d '\r')
+            testlogs=$(bazel info bazel-testlogs | tr -d '\r')
             mkdir -p "integration-results/$qos"
             for result in "$testlogs"/test/integration_*; do
               if [[ -d "$result" ]]; then
