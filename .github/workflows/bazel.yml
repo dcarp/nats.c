@@ -36,6 +36,7 @@ jobs:
             //test:integration_AsyncSubscribeTimeout
             //test:integration_DrainConn
           )
+          taskpolicy=$(command -v taskpolicy)
           overall_status=0
           for qos in default user-initiated; do
             echo "::group::Integration timing with QoS $qos"
@@ -43,7 +44,7 @@ jobs:
             bazel test \
               --test_output=all --verbose_failures \
               --copt=-isystem/usr/local/include \
-              --run_under="/usr/bin/taskpolicy -l 0 -t 0" \
+              --run_under="$taskpolicy -l 0 -t 0" \
               --nocache_test_results --flaky_test_attempts=1 --test_env=CNATS_TEST_QOS="$qos" \
               "${tests[@]}" || status=$?
             echo "QoS $qos: Bazel exit code $status" >> "$GITHUB_STEP_SUMMARY"
