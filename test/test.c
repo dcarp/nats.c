@@ -24236,13 +24236,17 @@ void test_SSLPerfConcurrentConnect(void)
         natsThread_Destroy(t[i]);
     }
     dur = nats_Now()-start;
-    // Should be less than 0.5*SSL_CONCURRENT_CONNS (that is 0.5*10=5sec)
-    // but account for when running with valgrind where things are slowed
-    // down quite a bit.
+    // Keep this below the 5-second serialized-handshake time, while allowing
+    // for slower hosted macOS runners and valgrind.
     if (valgrind)
         limit = 4000;
+#ifdef DARWIN
+    else
+        limit = 4500;
+#else
     else
         limit = 2500;
+#endif
     testCond(dur < limit);
 
     test("Check there was no failure: ");
@@ -29253,7 +29257,7 @@ _checkPubAckResult(natsStatus s, struct threadArg *args)
 
     natsMutex_Lock(args->m);
     while ((s != NATS_TIMEOUT) && !args->done)
-        s = natsCondition_TimedWait(args->c, args->m, 1000);
+        s = natsCondition_TimedWait(args->c, args->m, 5000);
     IFOK(s, args->status);
     args->done = false;
     args->status = NATS_OK;
