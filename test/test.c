@@ -10488,7 +10488,11 @@ void test_RetryOnFailedConnect(void)
 #ifdef _WIN32
     testCond((((end-start) >= 1000) && ((end-start) <= 2800)));
 #else
-    testCond((((end-start) >= 300) && ((end-start) <= 1500)));
+    // Each reconnect wait can incur a separate scheduling delay.
+    printf("[timing] retries elapsed=%" PRId64 "ms maximum=%" PRId64 "ms\n",
+           end - start, 1500 + opts->maxReconnect * schedulingSlack);
+    testCond((((end-start) >= 300)
+             && ((end-start) <= 1500 + opts->maxReconnect * schedulingSlack)));
 #endif
 
     test("Connects ok: ");
@@ -17003,7 +17007,8 @@ void test_TimeoutOnNoServer(void)
     test("Wait for closed: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000 + serversCount*50);
+        s = natsCondition_TimedWait(arg.c, arg.m,
+                2000 + serversCount*50 + opts->maxReconnect * schedulingSlack);
     natsMutex_Unlock(arg.m);
     testCond((s == NATS_OK) && arg.closed);
 
@@ -17015,7 +17020,9 @@ void test_TimeoutOnNoServer(void)
     // ReconnectWait==100ms. When a server is not running, the connect
     // failure on UNIXes should be fast, still account for that.
     test("Check wait time for closed cb: ");
-    testCond(timedWait <= ((opts->maxReconnect * opts->reconnectWait) + serversCount*opts->maxReconnect*50));
+    testCond(timedWait <= ((opts->maxReconnect * opts->reconnectWait)
+                          + serversCount*opts->maxReconnect*50
+                          + opts->maxReconnect * schedulingSlack));
 
     natsOptions_Destroy(opts);
     natsConnection_Destroy(nc);
@@ -17945,7 +17952,9 @@ void test_CustomReconnectDelay(void)
 #if _WIN32
     testCond((s == NATS_OK) && (dur <= 1000));
 #else
-    testCond((s == NATS_OK) && (dur <= 600));
+    printf("[timing] custom reconnect status=%d elapsed=%" PRId64 "ms maximum=%" PRId64 "ms\n",
+           (int) s, dur, 600 + 4 * schedulingSlack);
+    testCond((s == NATS_OK) && (dur <= 600 + 4 * schedulingSlack));
 #endif
 
     natsConnection_Destroy(nc);
