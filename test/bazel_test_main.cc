@@ -18,11 +18,6 @@
 #include <stdexcept>
 #include <string>
 
-#ifdef __APPLE__
-#include <pthread.h>
-#include <pthread/qos.h>
-#endif
-
 #include "rules_cc/cc/runfiles/runfiles.h"
 
 extern "C" int cnats_test_main(int argc, char **argv);
@@ -45,24 +40,6 @@ int main(int argc, char **argv)
 {
     try
     {
-#ifdef __APPLE__
-        const char *qos = std::getenv("CNATS_TEST_QOS");
-        if (qos != nullptr)
-        {
-            qos_class_t before = qos_class_self();
-            if (std::string(qos) == "user-initiated")
-            {
-                int status = pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
-                if (status != 0)
-                    throw std::runtime_error("Unable to set test QoS: " + std::to_string(status));
-            }
-            else if (std::string(qos) != "default")
-                throw std::runtime_error("Unknown test QoS: " + std::string(qos));
-            std::printf("[timing] QoS requested=%s before=%u after=%u user_initiated=%u\n",
-                        qos, static_cast<unsigned>(before), static_cast<unsigned>(qos_class_self()),
-                        static_cast<unsigned>(QOS_CLASS_USER_INITIATED));
-        }
-#endif
         const char *temporary = std::getenv("TEST_TMPDIR");
         if (argc < 2 || temporary == nullptr)
             throw std::runtime_error("Expected a test name and Bazel TEST_TMPDIR");

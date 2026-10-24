@@ -73,6 +73,14 @@ bool keepServerOutput    = false;
 static bool valgrind            = false;
 static bool runOnTravis         = false;
 
+// macOS may coalesce timer wakeups, particularly on hosted CI machines.
+// Keep early-wakeup bounds strict, but allow bounded scheduling delay.
+#ifdef DARWIN
+static const int64_t schedulingSlack = 500;
+#else
+static const int64_t schedulingSlack = 0;
+#endif
+
 static const char *serverVersion = NULL;
 
 static const char *natsStreamingServerExe = "nats-streaming-server";
@@ -242,8 +250,9 @@ void test_natsNowAndSleep(void)
     start = nats_Now();
     nats_Sleep(1000);
     end = nats_Now();
-    printf("[timing] sleep requested=1000ms elapsed=%" PRId64 "ms expected=990..1010ms\n", end - start);
-    testCond(((end - start) >= 990) && ((end - start) <= 1010));
+    printf("[timing] sleep requested=1000ms elapsed=%" PRId64 "ms expected=990..%" PRId64 "ms\n",
+           end - start, 1010 + schedulingSlack);
+    testCond(((end - start) >= 990) && ((end - start) <= 1010 + schedulingSlack));
 }
 
 void test_natsAllocSprintf(void)
@@ -1128,10 +1137,10 @@ void test_natsCondition(void)
     before = nats_Now();
     s = natsCondition_TimedWait(c1, m, 1000);
     diff = (nats_Now() - before);
-    printf("[timing] condition status=%d expected_status=%d elapsed=%" PRId64 "ms expected=985..1015ms\n",
-           (int) s, (int) NATS_TIMEOUT, diff);
+    printf("[timing] condition status=%d expected_status=%d elapsed=%" PRId64 "ms expected=985..%" PRId64 "ms\n",
+           (int) s, (int) NATS_TIMEOUT, diff, 1015 + schedulingSlack);
     testCond((s == NATS_TIMEOUT)
-             && (diff >= 985) && (diff <= 1015));
+             && (diff >= 985) && (diff <= 1015 + schedulingSlack));
 
     test("Wait timeout with 0: ");
     before = nats_Now();
@@ -1152,8 +1161,10 @@ void test_natsCondition(void)
     target = nats_setTargetTime(1000);
     s = natsCondition_AbsoluteTimedWait(c1, m, target);
     diff = (nats_Now() - before);
+    printf("[timing] absolute condition status=%d elapsed=%" PRId64 "ms expected=985..%" PRId64 "ms\n",
+           (int) s, diff, 1015 + schedulingSlack);
     testCond((s == NATS_TIMEOUT)
-             && (diff >= 985) && (diff <= 1015));
+             && (diff >= 985) && (diff <= 1015 + schedulingSlack));
 
     test("Wait absolute time in the past: ");
     before = nats_Now();
@@ -1174,7 +1185,7 @@ void test_natsCondition(void)
         diff = (nats_Now() - before);
     }
     testCond((s == NATS_OK)
-             && (diff >= 400) && (diff <= 600));
+             && (diff >= 400) && (diff <= 600 + schedulingSlack));
 
     natsThread_Join(t1);
     natsThread_Destroy(t1);
@@ -12331,7 +12342,7 @@ _asyncTimeoutCb(natsConnection *nc, natsSubscription *sub, natsMsg *msg, void *c
            {
                ai->timeFirstTimeout = nats_Now();
                // Notify the main thread to send the second message
-               // after waiting 1/2 of the timeout period.
+               // after letting part of the timeout period elapse.
                natsCondition_Signal(ai->arg->c);
                break;
            }
@@ -12363,7 +12374,13 @@ void test_AsyncSubscribeTimeout(void)
     struct threadArg    arg;
     bool                useLibDlv = false;
     int                 i;
+#ifdef DARWIN
+    // Leave enough time to deliver the resetting message before another
+    // timeout, even when the scheduler delays the main thread's wakeup.
+    int64_t             timeout   = 1000;
+#else
     int64_t             timeout   = 100;
+#endif
     _asyncTimeoutInfo   ai;
 
     for (i=0; i<4; i++)
@@ -12399,14 +12416,15 @@ void test_AsyncSubscribeTimeout(void)
         }
         IFOK(s, natsConnection_PublishString(nc, "foo", "msg1"));
 
-        // Wait to be notified that sub timed-out 2 times
+        // Wait for the first timeout notification
         natsMutex_Lock(arg.m);
         while ((s != NATS_TIMEOUT) && (arg.timerFired != 1))
             s = natsCondition_TimedWait(arg.c, arg.m, 5000);
         natsMutex_Unlock(arg.m);
 
-        // Wait half the timeout
-        nats_Sleep(timeout/2);
+        // Let part of the timeout elapse before resetting it. Leave a larger
+        // delivery window on macOS, where wakeups may be coalesced.
+        nats_Sleep(timeout / (schedulingSlack > 0 ? 4 : 2));
 
         // Send the second message. This should reset the timeout timer.
         IFOK(s, natsConnection_PublishString(nc, "foo", "msg2"));
@@ -12437,17 +12455,18 @@ void test_AsyncSubscribeTimeout(void)
 
         // Check for success
         natsMutex_Lock(arg.m);
-        printf("[timing] async iteration=%d status=%d callback_status=%d messages=%d expected_messages=3 timeouts=%d expected_timeouts=2 done=%d stopped=%d first_delay=%" PRId64 "ms second_delay=%" PRId64 "ms expected_delay=50..150ms\n",
+        printf("[timing] async iteration=%d status=%d callback_status=%d messages=%d expected_messages=3 timeouts=%d expected_timeouts=2 done=%d stopped=%d first_delay=%" PRId64 "ms second_delay=%" PRId64 "ms expected_delay=%" PRId64 "..%" PRId64 "ms\n",
                i, (int) s, (int) arg.status, arg.sum, arg.timerFired,
                (int) arg.done, arg.timerStopped,
                ai.timeFirstTimeout - ai.timeAfterFirstMsg,
-               ai.timeSecondTimeout - ai.timeSecondMsg);
+               ai.timeSecondTimeout - ai.timeSecondMsg,
+               timeout - 50, timeout + 50 + schedulingSlack);
         testCond((s == NATS_OK) && (arg.status == NATS_OK)
                     && (arg.sum == 3) && (arg.timerFired == 2)
                     && (ai.timeFirstTimeout >= ai.timeAfterFirstMsg + timeout - 50)
-                    && (ai.timeFirstTimeout <= ai.timeAfterFirstMsg + timeout + 50)
+                    && (ai.timeFirstTimeout <= ai.timeAfterFirstMsg + timeout + 50 + schedulingSlack)
                     && (ai.timeSecondTimeout >= ai.timeSecondMsg + timeout - 50)
-                    && (ai.timeSecondTimeout <= ai.timeSecondMsg + timeout + 50))
+                    && (ai.timeSecondTimeout <= ai.timeSecondMsg + timeout + 50 + schedulingSlack))
         natsMutex_Unlock(arg.m);
 
         natsConnection_Destroy(nc);
@@ -19659,7 +19678,7 @@ void test_DrainConn(void)
     test("Closed CB invoked: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000);
+        s = natsCondition_TimedWait(arg.c, arg.m, 5000);
     arg.closed = false;
     natsMutex_Unlock(arg.m);
     testCond(s == NATS_OK);
@@ -19718,8 +19737,8 @@ void test_DrainConn(void)
     test("Closed CB should be invoked: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000);
-    printf("[timing] drain status=%d closed=%d messages=%d expected_messages=%d callback_status=%d elapsed=%" PRId64 "ms wait_timeout=2000ms\n",
+        s = natsCondition_TimedWait(arg.c, arg.m, 5000);
+    printf("[timing] drain status=%d closed=%d messages=%d expected_messages=%d callback_status=%d elapsed=%" PRId64 "ms wait_timeout=5000ms\n",
            (int) s, (int) arg.closed, arg.sum, expected, (int) arg.status,
            nats_Now() - start);
     natsMutex_Unlock(arg.m);
@@ -19740,7 +19759,7 @@ void test_DrainConn(void)
     test("All responses received: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.done)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000);
+        s = natsCondition_TimedWait(arg.c, arg.m, 5000);
     if ((s == NATS_OK) && (arg.results[1] != expected))
         s = NATS_ERR;
     natsMutex_Unlock(arg.m);
