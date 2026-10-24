@@ -242,6 +242,7 @@ void test_natsNowAndSleep(void)
     start = nats_Now();
     nats_Sleep(1000);
     end = nats_Now();
+    printf("[timing] sleep requested=1000ms elapsed=%" PRId64 "ms expected=990..1010ms\n", end - start);
     testCond(((end - start) >= 990) && ((end - start) <= 1010));
 }
 
@@ -1127,6 +1128,8 @@ void test_natsCondition(void)
     before = nats_Now();
     s = natsCondition_TimedWait(c1, m, 1000);
     diff = (nats_Now() - before);
+    printf("[timing] condition status=%d expected_status=%d elapsed=%" PRId64 "ms expected=985..1015ms\n",
+           (int) s, (int) NATS_TIMEOUT, diff);
     testCond((s == NATS_TIMEOUT)
              && (diff >= 985) && (diff <= 1015));
 
@@ -12434,6 +12437,11 @@ void test_AsyncSubscribeTimeout(void)
 
         // Check for success
         natsMutex_Lock(arg.m);
+        printf("[timing] async iteration=%d status=%d callback_status=%d messages=%d expected_messages=3 timeouts=%d expected_timeouts=2 done=%d stopped=%d first_delay=%" PRId64 "ms second_delay=%" PRId64 "ms expected_delay=50..150ms\n",
+               i, (int) s, (int) arg.status, arg.sum, arg.timerFired,
+               (int) arg.done, arg.timerStopped,
+               ai.timeFirstTimeout - ai.timeAfterFirstMsg,
+               ai.timeSecondTimeout - ai.timeSecondMsg);
         testCond((s == NATS_OK) && (arg.status == NATS_OK)
                     && (arg.sum == 3) && (arg.timerFired == 2)
                     && (ai.timeFirstTimeout >= ai.timeAfterFirstMsg + timeout - 50)
@@ -19711,6 +19719,9 @@ void test_DrainConn(void)
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
         s = natsCondition_TimedWait(arg.c, arg.m, 2000);
+    printf("[timing] drain status=%d closed=%d messages=%d expected_messages=%d callback_status=%d elapsed=%" PRId64 "ms wait_timeout=2000ms\n",
+           (int) s, (int) arg.closed, arg.sum, expected, (int) arg.status,
+           nats_Now() - start);
     natsMutex_Unlock(arg.m);
     testCond(s == NATS_OK);
 

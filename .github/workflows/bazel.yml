@@ -46,21 +46,40 @@ jobs:
             echo 'Unexpected OpenSSL shared-library dependency'
             exit 1
           fi
-      - name: Run server integration tests
-        run: bazel test --test_output=errors --verbose_failures --copt=-isystem/usr/local/include --flaky_test_attempts=3 //test:integration
-      - name: Collect test results
-        if: failure()
+      - name: Compare integration timing with default and higher QoS
         shell: bash
         run: |
-          mkdir -p integration-results
-          testlogs=$(bazel info bazel-testlogs | tr -d '\r')
-          for result in "$testlogs"/test/integration_*; do
-            if [[ -d "$result" ]]; then
-              cp -R "$result" integration-results/
+          tests=(
+            //test:integration_natsNowAndSleep
+            //test:integration_natsCondition
+            //test:integration_AsyncSubscribeTimeout
+            //test:integration_DrainConn
+          )
+          overall_status=0
+          for qos in default user-initiated; do
+            echo "::group::Integration timing with QoS $qos"
+            status=0
+            bazel --macos_qos_class="$qos" test \
+              --test_output=all --verbose_failures \
+              --copt=-isystem/usr/local/include \
+              --nocache_test_results --flaky_test_attempts=1 \
+              "${tests[@]}" || status=$?
+            echo "QoS $qos: Bazel exit code $status" >> "$GITHUB_STEP_SUMMARY"
+            testlogs=$(bazel --macos_qos_class="$qos" info bazel-testlogs | tr -d '\r')
+            mkdir -p "integration-results/$qos"
+            for result in "$testlogs"/test/integration_*; do
+              if [[ -d "$result" ]]; then
+                cp -RL "$result" "integration-results/$qos/"
+              fi
+            done
+            echo "::endgroup::"
+            if [[ "$status" -ne 0 ]]; then
+              overall_status=1
             fi
           done
+          exit "$overall_status"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
+        if: always()
         with:
-          name: integration-${{ matrix.os }}
+          name: integration-${{ matrix.os }}-qos-comparison
           path: integration-results
