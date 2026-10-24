@@ -12,6 +12,7 @@ jobs:
   consumer:
     name: ${{ matrix.os }} / Bazel ${{ matrix.bazel }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -45,3 +46,21 @@ jobs:
             echo 'Unexpected OpenSSL shared-library dependency'
             exit 1
           fi
+      - name: Run server integration tests
+        run: bazel test --test_output=errors --verbose_failures --copt=-isystem/usr/local/include --flaky_test_attempts=3 //test:integration
+      - name: Collect test results
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p integration-results
+          testlogs=$(bazel info bazel-testlogs | tr -d '\r')
+          for result in "$testlogs"/test/integration_*; do
+            if [[ -d "$result" ]]; then
+              cp -R "$result" integration-results/
+            fi
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: integration-${{ matrix.os }}
+          path: integration-results
