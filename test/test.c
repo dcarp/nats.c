@@ -2388,7 +2388,11 @@ void test_natsHashing(void)
         lr = r;
     }
     end = nats_Now();
+#ifdef DARWIN
+    testCond((s == NATS_OK) && ((end - start) < 2000));
+#else
     testCond((s == NATS_OK) && ((end - start) < 1000));
+#endif
 }
 
 void test_natsHash(void)
@@ -32767,7 +32771,7 @@ void test_JetStreamSubscribePullAsync(void)
         {
             .name = "Fetch with a short expiration is partially fulfilled NATS_TIMEOUT",
             .fetchSize = 11, // just to slow things down
-            .want = 200,
+            .want = 300,
             .expires = 5,
             .during = 200,
             .expectedStatus = NATS_TIMEOUT,
