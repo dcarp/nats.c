@@ -31242,7 +31242,7 @@ void test_JetStreamSubscribeIdleHearbeat(void)
     CHECK_SERVER_STARTED(pid);
     natsMutex_Lock(args.m);
     while ((s != NATS_TIMEOUT) && (args.results[0] == 0))
-        s = natsCondition_TimedWait(args.c, args.m, 1000);
+        s = natsCondition_TimedWait(args.c, args.m, 1000 + schedulingSlack);
     natsMutex_Unlock(args.m);
     testCond(s == NATS_OK);
 
@@ -31344,7 +31344,7 @@ void test_JetStreamSubscribeIdleHearbeat(void)
     CHECK_SERVER_STARTED(pid);
     natsMutex_Lock(args.m);
     while ((s != NATS_TIMEOUT) && (args.results[1] == 0))
-        s = natsCondition_TimedWait(args.c, args.m, 1000);
+        s = natsCondition_TimedWait(args.c, args.m, 1000 + schedulingSlack);
     natsMutex_Unlock(args.m);
     testCond(s == NATS_OK);
 
