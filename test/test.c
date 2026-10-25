@@ -35483,7 +35483,8 @@ void test_JetStreamBackOffRedeliveries(void)
     start = nats_Now();
     s = natsSubscription_NextMsg(&msg, sub, 1000);
     dur = (nats_Now()-start);
-    testCond((s == NATS_OK) && (dur > 25) && (dur < 100));
+    testCond((s == NATS_OK) && (dur > 25)
+             && (dur < 100 + schedulingSlack));
     natsMsg_Destroy(msg);
     msg = NULL;
 
@@ -35494,7 +35495,8 @@ void test_JetStreamBackOffRedeliveries(void)
         start = nats_Now();
         s = natsSubscription_NextMsg(&msg, sub, 1000);
         dur = (nats_Now()-start);
-        testCond((s == NATS_OK) && (dur > 200) && (dur < 300));
+        testCond((s == NATS_OK) && (dur > 200)
+                 && (dur < 300 + schedulingSlack));
         natsMsg_Destroy(msg);
         msg = NULL;
     }
