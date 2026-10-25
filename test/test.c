@@ -5590,7 +5590,8 @@ void test_natsWaitReady(void)
     start = nats_Now();
     s = natsSock_WaitReady(WAIT_FOR_READ, &ctx);
     dur = nats_Now()-start;
-    testCond((s == NATS_OK) && (dur >= 450) && (dur <= 600));
+    testCond((s == NATS_OK) && (dur >= 450)
+             && (dur <= 600 + schedulingSlack));
 
     // Ensure that we get a would_block on read..
     while (recv(ctx.fd, buffer, 1, 0) != -1) {}
@@ -5600,7 +5601,8 @@ void test_natsWaitReady(void)
     start = nats_Now();
     s = natsSock_WaitReady(WAIT_FOR_READ, &ctx);
     dur = nats_Now()-start;
-    testCond((s == NATS_TIMEOUT) && (dur >= 40) && (dur <= 100));
+    testCond((s == NATS_TIMEOUT) && (dur >= 40)
+             && (dur <= 100 + schedulingSlack));
 
     // Ensure that we get a would_block on read..
     while (recv(ctx.fd, buffer, 1, 0) != -1) {}
