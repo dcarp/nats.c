@@ -113,6 +113,7 @@ struct threadArg
     bool            current;
     int             sum;
     int             timerFired;
+    int             timerCallbackCompleted;
     int             timerStopped;
     natsStrHash     *inboxes;
     natsStatus      status;
@@ -1278,6 +1279,7 @@ testTimerCb(natsTimer *timer, void *arg)
 
     natsMutex_Lock(tArg->m);
 
+    tArg->timerCallbackCompleted++;
     natsCondition_Signal(tArg->c);
 
     natsMutex_Unlock(tArg->m);
@@ -1396,17 +1398,23 @@ void test_natsTimer(void)
 
     tArg.control      = 1;
     tArg.timerFired   = 0;
+    tArg.timerCallbackCompleted = 0;
     tArg.timerStopped = 0;
     test("Reset from callback: ");
     natsTimer_Reset(t, 250);
-    nats_Sleep(900);
+    natsMutex_Lock(tArg.m);
+    s = NATS_OK;
+    while ((tArg.timerCallbackCompleted < 2) && (s == NATS_OK))
+        s = natsCondition_TimedWait(tArg.c, tArg.m, 5000);
+    natsMutex_Unlock(tArg.m);
     natsTimer_Stop(t);
     nats_Sleep(600);
     natsMutex_Lock(t->mu);
     refs = t->refs;
     natsMutex_Unlock(t->mu);
     natsMutex_Lock(tArg.m);
-    testCond((tArg.timerFired == 2)
+    testCond((s == NATS_OK)
+             && (tArg.timerFired == 2)
              && (tArg.timerStopped == 1)
              && (refs == 1)
              && nats_getTimersCount() == 0);
