@@ -251,6 +251,8 @@ void test_natsNowAndSleep(void)
     start = nats_Now();
     nats_Sleep(1000);
     end = nats_Now();
+    printf("[timing] sleep requested=1000ms elapsed=%" PRId64 "ms expected=990..%" PRId64 "ms\n",
+           end - start, 1010 + schedulingSlack);
     testCond(((end - start) >= 990) && ((end - start) <= 1010 + schedulingSlack));
 }
 
@@ -1136,6 +1138,8 @@ void test_natsCondition(void)
     before = nats_Now();
     s = natsCondition_TimedWait(c1, m, 1000);
     diff = (nats_Now() - before);
+    printf("[timing] condition status=%d expected_status=%d elapsed=%" PRId64 "ms expected=985..%" PRId64 "ms\n",
+           (int) s, (int) NATS_TIMEOUT, diff, 1015 + schedulingSlack);
     testCond((s == NATS_TIMEOUT)
              && (diff >= 985) && (diff <= 1015 + schedulingSlack));
 
@@ -1158,6 +1162,8 @@ void test_natsCondition(void)
     target = nats_setTargetTime(1000);
     s = natsCondition_AbsoluteTimedWait(c1, m, target);
     diff = (nats_Now() - before);
+    printf("[timing] absolute condition status=%d elapsed=%" PRId64 "ms expected=985..%" PRId64 "ms\n",
+           (int) s, diff, 1015 + schedulingSlack);
     testCond((s == NATS_TIMEOUT)
              && (diff >= 985) && (diff <= 1015 + schedulingSlack));
 
@@ -2388,11 +2394,7 @@ void test_natsHashing(void)
         lr = r;
     }
     end = nats_Now();
-#ifdef DARWIN
-    testCond((s == NATS_OK) && ((end - start) < 2000));
-#else
     testCond((s == NATS_OK) && ((end - start) < 1000));
-#endif
 }
 
 void test_natsHash(void)
@@ -10497,6 +10499,8 @@ void test_RetryOnFailedConnect(void)
     testCond((((end-start) >= 1000) && ((end-start) <= 2800)));
 #else
     // Each reconnect wait can incur a separate scheduling delay.
+    printf("[timing] retries elapsed=%" PRId64 "ms maximum=%" PRId64 "ms\n",
+           end - start, 1500 + opts->maxReconnect * schedulingSlack);
     testCond((((end-start) >= 300)
              && ((end-start) <= 1500 + opts->maxReconnect * schedulingSlack)));
 #endif
@@ -12465,6 +12469,12 @@ void test_AsyncSubscribeTimeout(void)
 
         // Check for success
         natsMutex_Lock(arg.m);
+        printf("[timing] async iteration=%d status=%d callback_status=%d messages=%d expected_messages=3 timeouts=%d expected_timeouts=2 done=%d stopped=%d first_delay=%" PRId64 "ms second_delay=%" PRId64 "ms expected_delay=%" PRId64 "..%" PRId64 "ms\n",
+               i, (int) s, (int) arg.status, arg.sum, arg.timerFired,
+               (int) arg.done, arg.timerStopped,
+               ai.timeFirstTimeout - ai.timeAfterFirstMsg,
+               ai.timeSecondTimeout - ai.timeSecondMsg,
+               timeout - 50, timeout + 50 + schedulingSlack);
         testCond((s == NATS_OK) && (arg.status == NATS_OK)
                     && (arg.sum == 3) && (arg.timerFired == 2)
                     && (ai.timeFirstTimeout >= ai.timeAfterFirstMsg + timeout - 50)
@@ -17952,6 +17962,8 @@ void test_CustomReconnectDelay(void)
 #if _WIN32
     testCond((s == NATS_OK) && (dur <= 1000));
 #else
+    printf("[timing] custom reconnect status=%d elapsed=%" PRId64 "ms maximum=%" PRId64 "ms\n",
+           (int) s, dur, 600 + 4 * schedulingSlack);
     testCond((s == NATS_OK) && (dur <= 600 + 4 * schedulingSlack));
 #endif
 
@@ -19745,6 +19757,9 @@ void test_DrainConn(void)
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
         s = natsCondition_TimedWait(arg.c, arg.m, 5000);
+    printf("[timing] drain status=%d closed=%d messages=%d expected_messages=%d callback_status=%d elapsed=%" PRId64 "ms wait_timeout=5000ms\n",
+           (int) s, (int) arg.closed, arg.sum, expected, (int) arg.status,
+           nats_Now() - start);
     natsMutex_Unlock(arg.m);
     testCond(s == NATS_OK);
 
@@ -32771,7 +32786,7 @@ void test_JetStreamSubscribePullAsync(void)
         {
             .name = "Fetch with a short expiration is partially fulfilled NATS_TIMEOUT",
             .fetchSize = 11, // just to slow things down
-            .want = 300,
+            .want = 200,
             .expires = 5,
             .during = 200,
             .expectedStatus = NATS_TIMEOUT,
