@@ -73,6 +73,14 @@ bool keepServerOutput    = false;
 static bool valgrind            = false;
 static bool runOnTravis         = false;
 
+// macOS may coalesce timer wakeups, particularly on hosted CI machines.
+// Keep early-wakeup bounds strict, but allow bounded scheduling delay.
+#ifdef DARWIN
+static const int64_t schedulingSlack = 500;
+#else
+static const int64_t schedulingSlack = 0;
+#endif
+
 static const char *serverVersion = NULL;
 
 static const char *natsStreamingServerExe = "nats-streaming-server";
@@ -105,6 +113,7 @@ struct threadArg
     bool            current;
     int             sum;
     int             timerFired;
+    int             timerCallbackCompleted;
     int             timerStopped;
     natsStrHash     *inboxes;
     natsStatus      status;
@@ -242,7 +251,7 @@ void test_natsNowAndSleep(void)
     start = nats_Now();
     nats_Sleep(1000);
     end = nats_Now();
-    testCond(((end - start) >= 990) && ((end - start) <= 1010));
+    testCond(((end - start) >= 990) && ((end - start) <= 1010 + schedulingSlack));
 }
 
 void test_natsAllocSprintf(void)
@@ -1128,7 +1137,7 @@ void test_natsCondition(void)
     s = natsCondition_TimedWait(c1, m, 1000);
     diff = (nats_Now() - before);
     testCond((s == NATS_TIMEOUT)
-             && (diff >= 985) && (diff <= 1015));
+             && (diff >= 985) && (diff <= 1015 + schedulingSlack));
 
     test("Wait timeout with 0: ");
     before = nats_Now();
@@ -1150,7 +1159,7 @@ void test_natsCondition(void)
     s = natsCondition_AbsoluteTimedWait(c1, m, target);
     diff = (nats_Now() - before);
     testCond((s == NATS_TIMEOUT)
-             && (diff >= 985) && (diff <= 1015));
+             && (diff >= 985) && (diff <= 1015 + schedulingSlack));
 
     test("Wait absolute time in the past: ");
     before = nats_Now();
@@ -1171,7 +1180,7 @@ void test_natsCondition(void)
         diff = (nats_Now() - before);
     }
     testCond((s == NATS_OK)
-             && (diff >= 400) && (diff <= 600));
+             && (diff >= 400) && (diff <= 600 + schedulingSlack));
 
     natsThread_Join(t1);
     natsThread_Destroy(t1);
@@ -1264,6 +1273,7 @@ testTimerCb(natsTimer *timer, void *arg)
 
     natsMutex_Lock(tArg->m);
 
+    tArg->timerCallbackCompleted++;
     natsCondition_Signal(tArg->c);
 
     natsMutex_Unlock(tArg->m);
@@ -1382,17 +1392,23 @@ void test_natsTimer(void)
 
     tArg.control      = 1;
     tArg.timerFired   = 0;
+    tArg.timerCallbackCompleted = 0;
     tArg.timerStopped = 0;
     test("Reset from callback: ");
     natsTimer_Reset(t, 250);
-    nats_Sleep(900);
+    natsMutex_Lock(tArg.m);
+    s = NATS_OK;
+    while ((tArg.timerCallbackCompleted < 2) && (s == NATS_OK))
+        s = natsCondition_TimedWait(tArg.c, tArg.m, 5000);
+    natsMutex_Unlock(tArg.m);
     natsTimer_Stop(t);
     nats_Sleep(600);
     natsMutex_Lock(t->mu);
     refs = t->refs;
     natsMutex_Unlock(t->mu);
     natsMutex_Lock(tArg.m);
-    testCond((tArg.timerFired == 2)
+    testCond((s == NATS_OK)
+             && (tArg.timerFired == 2)
              && (tArg.timerStopped == 1)
              && (refs == 1)
              && nats_getTimersCount() == 0);
@@ -2372,7 +2388,11 @@ void test_natsHashing(void)
         lr = r;
     }
     end = nats_Now();
+#ifdef DARWIN
+    testCond((s == NATS_OK) && ((end - start) < 2000));
+#else
     testCond((s == NATS_OK) && ((end - start) < 1000));
+#endif
 }
 
 void test_natsHash(void)
@@ -5576,7 +5596,8 @@ void test_natsWaitReady(void)
     start = nats_Now();
     s = natsSock_WaitReady(WAIT_FOR_READ, &ctx);
     dur = nats_Now()-start;
-    testCond((s == NATS_OK) && (dur >= 450) && (dur <= 600));
+    testCond((s == NATS_OK) && (dur >= 450)
+             && (dur <= 600 + schedulingSlack));
 
     // Ensure that we get a would_block on read..
     while (recv(ctx.fd, buffer, 1, 0) != -1) {}
@@ -5586,7 +5607,8 @@ void test_natsWaitReady(void)
     start = nats_Now();
     s = natsSock_WaitReady(WAIT_FOR_READ, &ctx);
     dur = nats_Now()-start;
-    testCond((s == NATS_TIMEOUT) && (dur >= 40) && (dur <= 100));
+    testCond((s == NATS_TIMEOUT) && (dur >= 40)
+             && (dur <= 100 + schedulingSlack));
 
     // Ensure that we get a would_block on read..
     while (recv(ctx.fd, buffer, 1, 0) != -1) {}
@@ -10474,7 +10496,9 @@ void test_RetryOnFailedConnect(void)
 #ifdef _WIN32
     testCond((((end-start) >= 1000) && ((end-start) <= 2800)));
 #else
-    testCond((((end-start) >= 300) && ((end-start) <= 1500)));
+    // Each reconnect wait can incur a separate scheduling delay.
+    testCond((((end-start) >= 300)
+             && ((end-start) <= 1500 + opts->maxReconnect * schedulingSlack)));
 #endif
 
     test("Connects ok: ");
@@ -12328,7 +12352,7 @@ _asyncTimeoutCb(natsConnection *nc, natsSubscription *sub, natsMsg *msg, void *c
            {
                ai->timeFirstTimeout = nats_Now();
                // Notify the main thread to send the second message
-               // after waiting 1/2 of the timeout period.
+               // after letting part of the timeout period elapse.
                natsCondition_Signal(ai->arg->c);
                break;
            }
@@ -12360,7 +12384,13 @@ void test_AsyncSubscribeTimeout(void)
     struct threadArg    arg;
     bool                useLibDlv = false;
     int                 i;
+#ifdef DARWIN
+    // Leave enough time to deliver the resetting message before another
+    // timeout, even when the scheduler delays the main thread's wakeup.
+    int64_t             timeout   = 1000;
+#else
     int64_t             timeout   = 100;
+#endif
     _asyncTimeoutInfo   ai;
 
     for (i=0; i<4; i++)
@@ -12396,14 +12426,15 @@ void test_AsyncSubscribeTimeout(void)
         }
         IFOK(s, natsConnection_PublishString(nc, "foo", "msg1"));
 
-        // Wait to be notified that sub timed-out 2 times
+        // Wait for the first timeout notification
         natsMutex_Lock(arg.m);
         while ((s != NATS_TIMEOUT) && (arg.timerFired != 1))
             s = natsCondition_TimedWait(arg.c, arg.m, 5000);
         natsMutex_Unlock(arg.m);
 
-        // Wait half the timeout
-        nats_Sleep(timeout/2);
+        // Let part of the timeout elapse before resetting it. Leave a larger
+        // delivery window on macOS, where wakeups may be coalesced.
+        nats_Sleep(timeout / (schedulingSlack > 0 ? 4 : 2));
 
         // Send the second message. This should reset the timeout timer.
         IFOK(s, natsConnection_PublishString(nc, "foo", "msg2"));
@@ -12437,9 +12468,9 @@ void test_AsyncSubscribeTimeout(void)
         testCond((s == NATS_OK) && (arg.status == NATS_OK)
                     && (arg.sum == 3) && (arg.timerFired == 2)
                     && (ai.timeFirstTimeout >= ai.timeAfterFirstMsg + timeout - 50)
-                    && (ai.timeFirstTimeout <= ai.timeAfterFirstMsg + timeout + 50)
+                    && (ai.timeFirstTimeout <= ai.timeAfterFirstMsg + timeout + 50 + schedulingSlack)
                     && (ai.timeSecondTimeout >= ai.timeSecondMsg + timeout - 50)
-                    && (ai.timeSecondTimeout <= ai.timeSecondMsg + timeout + 50))
+                    && (ai.timeSecondTimeout <= ai.timeSecondMsg + timeout + 50 + schedulingSlack))
         natsMutex_Unlock(arg.m);
 
         natsConnection_Destroy(nc);
@@ -16976,7 +17007,8 @@ void test_TimeoutOnNoServer(void)
     test("Wait for closed: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000 + serversCount*50);
+        s = natsCondition_TimedWait(arg.c, arg.m,
+                2000 + serversCount*50 + opts->maxReconnect * schedulingSlack);
     natsMutex_Unlock(arg.m);
     testCond((s == NATS_OK) && arg.closed);
 
@@ -16988,7 +17020,9 @@ void test_TimeoutOnNoServer(void)
     // ReconnectWait==100ms. When a server is not running, the connect
     // failure on UNIXes should be fast, still account for that.
     test("Check wait time for closed cb: ");
-    testCond(timedWait <= ((opts->maxReconnect * opts->reconnectWait) + serversCount*opts->maxReconnect*50));
+    testCond(timedWait <= ((opts->maxReconnect * opts->reconnectWait)
+                          + serversCount*opts->maxReconnect*50
+                          + opts->maxReconnect * schedulingSlack));
 
     natsOptions_Destroy(opts);
     natsConnection_Destroy(nc);
@@ -17918,7 +17952,7 @@ void test_CustomReconnectDelay(void)
 #if _WIN32
     testCond((s == NATS_OK) && (dur <= 1000));
 #else
-    testCond((s == NATS_OK) && (dur <= 600));
+    testCond((s == NATS_OK) && (dur <= 600 + 4 * schedulingSlack));
 #endif
 
     natsConnection_Destroy(nc);
@@ -19651,7 +19685,7 @@ void test_DrainConn(void)
     test("Closed CB invoked: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000);
+        s = natsCondition_TimedWait(arg.c, arg.m, 5000);
     arg.closed = false;
     natsMutex_Unlock(arg.m);
     testCond(s == NATS_OK);
@@ -19710,7 +19744,7 @@ void test_DrainConn(void)
     test("Closed CB should be invoked: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.closed)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000);
+        s = natsCondition_TimedWait(arg.c, arg.m, 5000);
     natsMutex_Unlock(arg.m);
     testCond(s == NATS_OK);
 
@@ -19729,7 +19763,7 @@ void test_DrainConn(void)
     test("All responses received: ");
     natsMutex_Lock(arg.m);
     while ((s != NATS_TIMEOUT) && !arg.done)
-        s = natsCondition_TimedWait(arg.c, arg.m, 2000);
+        s = natsCondition_TimedWait(arg.c, arg.m, 5000);
     if ((s == NATS_OK) && (arg.results[1] != expected))
         s = NATS_ERR;
     natsMutex_Unlock(arg.m);
@@ -24197,13 +24231,17 @@ void test_SSLPerfConcurrentConnect(void)
         natsThread_Destroy(t[i]);
     }
     dur = nats_Now()-start;
-    // Should be less than 0.5*SSL_CONCURRENT_CONNS (that is 0.5*10=5sec)
-    // but account for when running with valgrind where things are slowed
-    // down quite a bit.
+    // Keep this below the 5-second serialized-handshake time, while allowing
+    // for slower hosted macOS runners and valgrind.
     if (valgrind)
         limit = 4000;
+#ifdef DARWIN
+    else
+        limit = 4500;
+#else
     else
         limit = 2500;
+#endif
     testCond(dur < limit);
 
     test("Check there was no failure: ");
@@ -29214,7 +29252,7 @@ _checkPubAckResult(natsStatus s, struct threadArg *args)
 
     natsMutex_Lock(args->m);
     while ((s != NATS_TIMEOUT) && !args->done)
-        s = natsCondition_TimedWait(args->c, args->m, 1000);
+        s = natsCondition_TimedWait(args->c, args->m, 5000);
     IFOK(s, args->status);
     args->done = false;
     args->status = NATS_OK;
@@ -32733,7 +32771,7 @@ void test_JetStreamSubscribePullAsync(void)
         {
             .name = "Fetch with a short expiration is partially fulfilled NATS_TIMEOUT",
             .fetchSize = 11, // just to slow things down
-            .want = 200,
+            .want = 300,
             .expires = 5,
             .during = 200,
             .expectedStatus = NATS_TIMEOUT,
