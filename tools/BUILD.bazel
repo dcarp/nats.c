@@ -21,7 +21,6 @@ run_binary(
     srcs = [
         "//:cnats",
         "//:src/nats.h",
-        "@rules_cc//cc:current_cc_toolchain",
     ],
     outs = [
         "generated/cnats.lds",
@@ -29,14 +28,12 @@ run_binary(
     ],
     args = [
         "--header=$(execpath //:src/nats.h)",
-        "--nm='$(NM)'",
         "--linux-output=$(execpath generated/cnats.lds)",
         "--macos-output=$(execpath generated/cnats.macos.exports)",
         "$(execpath //:cnats)",
     ],
     target_compatible_with = _UNIX_COMPATIBILITY,
     tool = ":bazel_exports",
-    toolchains = ["@rules_cc//cc:current_cc_toolchain"],
     use_default_shell_env = True,
 )
 
