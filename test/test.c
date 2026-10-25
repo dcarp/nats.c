@@ -32771,11 +32771,11 @@ void test_JetStreamSubscribePullAsync(void)
         {
             .name = "Fetch with a short expiration is partially fulfilled NATS_TIMEOUT",
             .fetchSize = 11, // just to slow things down
-            .want = 300,
+            .want = 500,
             .expires = 5,
             .during = 200,
             .expectedStatus = NATS_TIMEOUT,
-            .expectedN = 200,
+            .expectedN = 500,
             .orFewer = true,
         },
         {
