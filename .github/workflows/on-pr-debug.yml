@@ -7,6 +7,7 @@ permissions:
 
 jobs:
   Ubuntu:
+    if: github.head_ref != 'debug/bazel-macos-latest-26-intel'
     name: "Ubuntu"
     strategy:
       fail-fast: false
@@ -20,6 +21,7 @@ jobs:
       experimental: ON
 
   dev-mode:
+    if: github.head_ref != 'debug/bazel-macos-latest-26-intel'
     name: "DEV_MODE"
     uses: ./.github/workflows/build-test.yml
     with:
@@ -31,6 +33,7 @@ jobs:
       experimental: ON
 
   sanitize:
+    if: github.head_ref != 'debug/bazel-macos-latest-26-intel'
     name: "Sanitize"
     strategy:
       fail-fast: false
@@ -48,6 +51,7 @@ jobs:
       experimental: ON
 
   coverage-TLS:
+    if: github.head_ref != 'debug/bazel-macos-latest-26-intel'
     name: "Coverage: TLS"
     strategy:
       fail-fast: false
@@ -69,6 +73,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   coverage-NO-verify_host:
+    if: github.head_ref != 'debug/bazel-macos-latest-26-intel'
     name: "Coverage: NO-verify_host"
     uses: ./.github/workflows/build-test.yml
     with:
@@ -83,6 +88,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   coverage-NO-TLS:
+    if: github.head_ref != 'debug/bazel-macos-latest-26-intel'
     name: "Coverage NO-TLS"
     uses: ./.github/workflows/build-test.yml
     with:
@@ -96,6 +102,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   Windows:
+    if: github.head_ref != 'debug/bazel-macos-latest-26-intel'
     name: "Windows"
     runs-on: windows-latest
     steps:

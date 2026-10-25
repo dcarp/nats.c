@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, macos-26-intel]
-        bazel: [7.x, 8.x, 9.x]
+        bazel: [8.x]
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:

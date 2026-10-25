@@ -1,6 +1,8 @@
 name: "Release"
 on:
   push:
+    branches-ignore:
+      - debug/bazel-macos-latest-26-intel
 
 permissions:
   contents: write # required by build-test to comment on coverage but not used here.
