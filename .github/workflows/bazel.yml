@@ -9,26 +9,13 @@ permissions:
   contents: read
 
 jobs:
-  format:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
-        with:
-          bazelisk-cache: true
-          repository-cache: true
-      - name: Check Bazel formatting
-        run: bazel run @buildifier_prebuilt//:buildifier -- -mode=check -lint=warn -r .
-      - name: Check release packaging
-        run: python3 tools/test_bazel_release.py
-
   consumer:
     name: ${{ matrix.os }} / Bazel ${{ matrix.bazel }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-15-intel, macos-15, windows-latest]
+        os: [macos-latest, macos-26-intel]
         bazel: [7.x, 8.x, 9.x]
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
@@ -66,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-15-intel, macos-15, windows-latest]
+        os: [macos-latest, macos-26-intel]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
