@@ -7,6 +7,7 @@ permissions:
 
 jobs:
   Ubuntu:
+    if: github.head_ref != 'debug/cmake-macos-15'
     name: "Ubuntu"
     strategy:
       fail-fast: false
@@ -20,6 +21,7 @@ jobs:
       experimental: ON
 
   dev-mode:
+    if: github.head_ref != 'debug/cmake-macos-15'
     name: "DEV_MODE"
     uses: ./.github/workflows/build-test.yml
     with:
@@ -31,6 +33,7 @@ jobs:
       experimental: ON
 
   sanitize:
+    if: github.head_ref != 'debug/cmake-macos-15'
     name: "Sanitize"
     strategy:
       fail-fast: false
@@ -48,6 +51,7 @@ jobs:
       experimental: ON
 
   coverage-TLS:
+    if: github.head_ref != 'debug/cmake-macos-15'
     name: "Coverage: TLS"
     strategy:
       fail-fast: false
@@ -69,6 +73,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   coverage-NO-verify_host:
+    if: github.head_ref != 'debug/cmake-macos-15'
     name: "Coverage: NO-verify_host"
     uses: ./.github/workflows/build-test.yml
     with:
@@ -83,6 +88,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   coverage-NO-TLS:
+    if: github.head_ref != 'debug/cmake-macos-15'
     name: "Coverage NO-TLS"
     uses: ./.github/workflows/build-test.yml
     with:
@@ -96,6 +102,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   Windows:
+    if: github.head_ref != 'debug/cmake-macos-15'
     name: "Windows"
     runs-on: windows-latest
     steps:
@@ -148,3 +155,18 @@ jobs:
           export PATH=../deps/nats-server:$PATH
           export NATS_TEST_SERVER_VERSION="$(nats-server -v)"
           ctest -L test -C Debug --timeout 60 --output-on-failure --repeat until-pass:3
+
+  macOS:
+    if: github.head_ref == 'debug/cmake-macos-15'
+    name: "CMake / ${{ matrix.runner }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    uses: ./.github/workflows/build-test.yml
+    with:
+      runner: ${{ matrix.runner }}
+      compiler: clang
+      server_version: main
+      type: Debug
+      experimental: ON

@@ -1,6 +1,8 @@
 name: "Release"
 on:
   push:
+    branches-ignore:
+      - debug/cmake-macos-15
 
 permissions:
   contents: write # required by build-test to comment on coverage but not used here.

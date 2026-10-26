@@ -22,6 +22,10 @@ on:
       repeat:
         type: string
         default: "1"
+      runner:
+        type: string
+        description: "GitHub Actions runner label; defaults to Ubuntu selected by ubuntu_version."
+        default: ""
       sanitize:
         type: string
         description: "sanitize option to use, 'address' or 'thread'"
@@ -69,8 +73,8 @@ defaults:
 
 jobs:
   do:
-    runs-on: ubuntu-${{ inputs.ubuntu_version }}
-    name: "${{ inputs.ubuntu_version }} - nats:${{ inputs.server_version }}"
+    runs-on: ${{ inputs.runner || format('ubuntu-{0}', inputs.ubuntu_version) }}
+    name: "${{ inputs.runner || format('ubuntu-{0}', inputs.ubuntu_version) }} - nats:${{ inputs.server_version }}"
     steps:
       - name: Checkout nats.c
         uses: actions/checkout@v6
@@ -136,7 +140,7 @@ jobs:
 
       # install build dependencies
       - name: Install ${{ inputs.compiler }} if needed
-        if: startsWith(inputs.compiler, 'clang-') || startsWith(inputs.compiler, 'gcc-')
+        if: runner.os == 'Linux' && (startsWith(inputs.compiler, 'clang-') || startsWith(inputs.compiler, 'gcc-'))
         run: |
           sudo apt-get -q update
           sudo apt-get -y install ${{ inputs.compiler }}
@@ -159,7 +163,7 @@ jobs:
           if [ "$rel" = "latest" ]; then
             rel=$(curl -s https://api.github.com/repos/nats-io/nats-server/releases/latest | jq -r '.tag_name')
           fi
-          if [ "$rel" != "${rel#v}" ] && wget https://github.com/nats-io/nats-server/releases/download/$rel/nats-server-$rel-linux-amd64.tar.gz; then
+          if [[ "$RUNNER_OS" == "Linux" ]] && [ "$rel" != "${rel#v}" ] && wget https://github.com/nats-io/nats-server/releases/download/$rel/nats-server-$rel-linux-amd64.tar.gz; then
             tar -xzf nats-server-$rel-linux-amd64.tar.gz
             cp nats-server-$rel-linux-amd64/nats-server ../deps/nats-server/nats-server
           else
