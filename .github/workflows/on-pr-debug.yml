@@ -168,5 +168,7 @@ jobs:
       runner: ${{ matrix.runner }}
       compiler: clang
       server_version: main
+      streaming: OFF
       type: Debug
       experimental: ON
+      use_sodium: OFF

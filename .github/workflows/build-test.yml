@@ -43,6 +43,10 @@ on:
         type: string
         description: "Debug or Release."
         default: "Release"
+      use_sodium:
+        type: string
+        description: "Build with libsodium support."
+        default: "ON"
       ubuntu_version:
         type: string
         description: "Ubuntu version to use, e.g. '22.04'"
@@ -92,7 +96,7 @@ jobs:
           flags: -DNATS_BUILD_ARCH=${{ inputs.arch }}
             -DCMAKE_BUILD_TYPE=${{ inputs.type }}
             -DNATS_BUILD_STREAMING=${{ inputs.streaming }}
-            -DNATS_BUILD_USE_SODIUM=ON
+            -DNATS_BUILD_USE_SODIUM=${{ inputs.use_sodium }}
             -DNATS_PROTOBUF_DIR=${{ github.workspace}}/deps/pbuf
             -DNATS_SODIUM_DIR=${{ github.workspace}}/deps/sodium
         run: |
